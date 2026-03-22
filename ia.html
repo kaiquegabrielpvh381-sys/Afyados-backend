@@ -379,20 +379,50 @@ async function send(){
   save(); renderHist();
   busy=true; document.getElementById('sendBtn').disabled=true; addTyping();
   const hist=convs[curId].messages.map(m=>({role:m.role==='bot'?'assistant':m.role,content:m.content}));
-  try{
-    let reply='';
-const BACKEND = 'https://afyados-backend.onrender.com';
-    const r=await fetch(BACKEND+'/chat',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({messages:hist})
+try {
+    const BACKEND = 'https://afyados-backend.onrender.com';
+    const r = await fetch(BACKEND + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: hist })
     });
-    const d=await r.json();
-    if(!r.ok||d.error) throw new Error(d.error||'Erro ao conectar com a IA. Tente novamente.');
-    reply=d.reply;
-    convs[curId].messages.push({role:'bot',content:reply}); save();
-    rmTyping(); renderMsg('bot',reply);
-  } catch(err){rmTyping();renderMsg('bot','❌ '+err.message+'\n\nVerifique sua API Key e tente novamente.');}
+
+    if (!r.ok) throw new Error('Erro na conexão com o servidor.');
+
+    rmTyping();
+    
+    // Início do Streaming (Resposta em tempo real)
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let reply = "";
+
+    // Renderiza a bolha vazia para a IA Afyados
+    renderMsg('bot', ''); 
+    const allMsgs = document.querySelectorAll('.msg-row.bot .msg-text');
+    const lastMsgBubble = allMsgs[allMsgs.length - 1];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      reply += chunk;
+      
+      // Atualiza o texto na tela instantaneamente com Markdown
+      lastMsgBubble.innerHTML = md(reply); 
+      document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+    }
+
+    convs[curId].messages.push({ role: 'bot', content: reply }); 
+    save();
+
+  } catch (err) {
+    rmTyping();
+    renderMsg('bot', '❌ Erro: ' + err.message);
+  }
+  
+  busy = false; 
+  document.getElementById('sendBtn').disabled = false;
   busy=false; document.getElementById('sendBtn').disabled=false;
 }
 
