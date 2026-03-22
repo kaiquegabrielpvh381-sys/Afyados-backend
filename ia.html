@@ -381,7 +381,7 @@ async function send(){
   const hist=convs[curId].messages.map(m=>({role:m.role==='bot'?'assistant':m.role,content:m.content}));
   try{
     let reply='';
-    const BACKEND = 'https://afyados-ia.onrender.com';
+const BACKEND = 'https://afyados-backend.onrender.com';
     const r=await fetch(BACKEND+'/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
