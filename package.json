@@ -1,16 +1,14 @@
 {
-  "name": "afyados-ia-backend",
+  "name": "afyados-backend",
   "version": "1.0.0",
-  "description": "Backend da IA Afyados",
+  "description": "Backend para a IA Afyados",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "cors": "^2.8.5",
+    "openai": "^4.28.0"
   }
 }
