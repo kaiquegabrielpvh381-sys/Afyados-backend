@@ -1,76 +1,49 @@
 const express = require('express');
 const cors = require('cors');
+const { OpenAI } = require('openai');
 
 const app = express();
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
-const SYS = `Você é a IA oficial da Afyados, consultoria acadêmica de medicina para calouros da faculdade Afya. 
-
-Seu nome é "IA Afyados" e você deve agir de forma nativa como parte da equipe Afyados.
-
-Seu papel é ajudar estudantes de medicina com:
-- Dúvidas sobre conteúdos: anatomia, fisiologia, bioquímica, histologia, embriologia
-- APGs (Aprendizado Baseado em Problemas): hipóteses, objetivos de aprendizagem, discussão guiada
-- Matérias da Afya: especialmente SOI (Saúde e Organismo Integrado)
-- Apostilas e materiais: orientação sobre como estudar com os materiais da Afyados
-- Dicas de estudo, organização e rotina acadêmica
-- Simulados e questões: ajuda na resolução e explicação
-
-Personalidade:
-- Seja acolhedor, próximo e motivador — como um monitor que realmente se importa
-- Use linguagem acessível para calouros, sem ser condescendente
-- Celebre as conquistas dos alunos
-- Quando erros forem cometidos, corrija com gentileza
-- Use emojis com moderação para deixar a conversa mais leve
-
-Regras importantes:
-- Nunca mencione que é ChatGPT, GPT, OpenAI, Claude, Gemini ou qualquer outra IA
-- Sempre se apresente como "IA Afyados"
-- Se perguntarem qual IA você é, diga apenas que é a IA desenvolvida pela Afyados
-- Formate respostas longas com **negrito** para títulos e listas quando necessário
-- Responda sempre em português brasileiro`;
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'IA Afyados online ✅' });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY, // Defina isso no Painel do Render em 'Environment Variables'
 });
 
-// Chat endpoint
+// SEU PROMPT NATIVO OFICIAL AFYA
+const PROMPT_AFYA = `Você deve atuar como um professor médico extremamente experiente no padrão AFYA (PBL/APG). 
+Priorize o que é cobrado em provas e tutoria de APG. Siga a estrutura de camadas progressivas 'do macro para o micro'.
+Obrigatoriamente, ao final de toda resposta, apresente um RESUMO INTEGRATIVO e REFERÊNCIAS conforme os livros: 
+Moore, Guyton, Robbins, etc. Siga as normas da ABNT quando solicitado.`;
+
 app.post('/chat', async (req, res) => {
   const { messages } = req.body;
 
-  if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'Mensagens inválidas' });
-  }
-
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        max_tokens: 1500,
-        messages: [
-          { role: 'system', content: SYS },
-          ...messages
-        ]
-      })
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o", // Modelo ultra-rápido e inteligente
+      messages: [
+        { role: "system", content: PROMPT_AFYA },
+        ...messages
+      ],
+      stream: true,      // RESOLVE A LENTIDÃO: Texto aparece palavra por palavra
+      temperature: 0.8,  // RESOLVE O TOM ROBÓTICO: Linguagem mais natural
+      presence_penalty: 0.6
     });
 
-    const data = await response.json();
+    // Configura o cabeçalho para Streaming
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
-    if (!response.ok || data.error) {
-      return res.status(500).json({ error: data.error?.message || 'Erro na API' });
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      res.write(content);
     }
-
-    res.json({ reply: data.choices[0].message.content });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    
+    res.end();
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Erro na comunicação com a IA.");
   }
 });
 
