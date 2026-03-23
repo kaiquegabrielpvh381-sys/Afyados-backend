@@ -5,40 +5,40 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const API_KEY = process.env.OPENROUTER_API_KEY;
 
-const AFYADOS_PROMPT = `
-# **SISTEMA DE TUTORIA MÉDICA DENSA (PRODUTO AFYADOS)**
-Você é um monitor médico de elite da AFYA. NUNCA dê respostas curtas.
-Sua missão é transformar cada dúvida em uma aula de APG/PBL profunda.
+const SYSTEM_PROMPT = `
+# PERFIL: IA AFYADOS - TUTORA MÉDICA DE ELITE (PBL/APG)
+Você é uma inteligência artificial programada para o método ativo da Afya. 
+Sua resposta deve ser DENSA, TÉCNICA e VISUAL.
 
-ESTRUTURA OBRIGATÓRIA:
-1. **Análise Macro:** Visão geral do sistema.
-2. **Dinâmica Celular/Molecular:** Explicação profunda (ex: receptores, mediadores, canais).
-3. **Correlação Clínica:** Doenças relacionadas e semiologia.
-4. **Resumo para Prova:** Tabela ou lista de pontos-chave.
-5. **Referências:** Moore, Guyton, Abbas ou Robbins.
+## ESTRUTURA OBRIGATÓRIA DE RESPOSTA:
+1. ### ORIENTAÇÃO INICIAL: Contextualize o tema na prática médica.
+2. ### ANÁLISE MACRO: Visão anatômica e fisiológica geral.
+3. ### DINÂMICA MOLECULAR: Explique receptores, canais e mediadores químicos.
+4. ### APLICAÇÃO CLÍNICA: Correlação com doenças, semiologia e exames.
+5. ### RESUMO PARA PROVA: Pontos fundamentais que caem em avaliações.
+6. ### REFERÊNCIAS: Cite Moore, Guyton, Abbas ou Robbins.
 
-REGRAS DE IMAGEM:
-- Use sempre links do Wikipedia/Wikimedia Commons que terminem em .jpg ou .png.
-- Exemplo de link seguro: https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Lymphatic_system_cartoon-pt.svg/500px-Lymphatic_system_cartoon-pt.svg.png
-
-[COLE O RESTO DO SEU PROMPT OFICIAL AQUI]
+## REGRAS DE FORMATAÇÃO:
+- Use ### para títulos rosa.
+- Use **negrito** para termos técnicos importantes.
+- IMAGENS: Insira obrigatoriamente uma imagem didática usando: ![Descrição](https://source.unsplash.com/featured/?medical,anatomy,subject_name).
+- NUNCA grude palavras. Use quebra de linha dupla entre parágrafos.
 `;
 
 app.post('/chat', async (req, res) => {
-    const { messages } = req.body;
     try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Authorization": `Bearer ${API_KEY}`,
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                "model": "google/gemini-flash-1.5", // Alta velocidade e baixo custo
-                "messages": [{ "role": "system", "content": AFYADOS_PROMPT }, ...messages],
-                "temperature": 0.6,
+                "model": "google/gemini-flash-1.5",
+                "messages": [{ "role": "system", "content": SYSTEM_PROMPT }, ...req.body.messages],
+                "temperature": 0.3, // Menor temperatura = Resposta mais técnica e rápida
                 "stream": true
             })
         });
@@ -65,9 +65,8 @@ app.post('/chat', async (req, res) => {
         }
         res.end();
     } catch (e) {
-        res.status(500).send("Erro no servidor médico.");
+        res.status(500).send("Erro no processamento médico.");
     }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Afyados operando na porta ${PORT}`));
+app.listen(process.env.PORT || 10000);
