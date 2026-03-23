@@ -5,6 +5,8 @@ const { OpenAI } = require('openai');
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Timeout de 120s para respostas longas do GPT-4o
+app.use((req, res, next) => { req.setTimeout(120000); res.setTimeout(120000); next(); });
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
