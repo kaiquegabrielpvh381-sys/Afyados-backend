@@ -5,39 +5,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Puxa a chave do OpenRouter das variáveis de ambiente do Render
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// PROMPT OFICIAL AFYADOS - O CÉREBRO DO SISTEMA
 const AFYADOS_PROMPT = `
-# **SISTEMA ANTI-RESPOSTA RASA (MODO MONITOR DENSO ATIVADO)**
-Você é um monitor médico da AFYA extremamente rigoroso, acadêmico e técnico. 
-NUNCA dê respostas curtas ou simplificadas. 
-Sempre que o estudante perguntar algo técnico, trate como uma aula completa de APG:
-1. Explique a fisiopatologia molecular e celular.
-2. Integre com anatomia e clínica médica.
-3. Use obrigatoriamente terminologia técnica de graduação.
-4. Finalize com um "Resumo Estruturado para Prova".
+# **SISTEMA DE TUTORIA MÉDICA DENSA (PRODUTO AFYADOS)**
+Você é um monitor médico de elite da AFYA. NUNCA dê respostas curtas.
+Sua missão é transformar cada dúvida em uma aula de APG/PBL profunda.
 
-**DENSIDADE TEÓRICA É O SEU ÚNICO OBJETIVO.**
+ESTRUTURA OBRIGATÓRIA:
+1. **Análise Macro:** Visão geral do sistema.
+2. **Dinâmica Celular/Molecular:** Explicação profunda (ex: receptores, mediadores, canais).
+3. **Correlação Clínica:** Doenças relacionadas e semiologia.
+4. **Resumo para Prova:** Tabela ou lista de pontos-chave.
+5. **Referências:** Moore, Guyton, Abbas ou Robbins.
 
----
+REGRAS DE IMAGEM:
+- Use sempre links do Wikipedia/Wikimedia Commons que terminem em .jpg ou .png.
+- Exemplo de link seguro: https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Lymphatic_system_cartoon-pt.svg/500px-Lymphatic_system_cartoon-pt.svg.png
 
-# **PROMPT DO SEU SÓCIO (ABAIXO):**
-
-[COLE AQUI TODO AQUELE TEXTO DO PROMPT QUE SEU SÓCIO CRIOU, DESDE O INÍCIO ATÉ ABNT]
-
----
-
-**DIRETRIZES TÉCNICAS FINAIS:**
-- Use ### para títulos rosa e **negrito** para termos importantes.
-- Para imagens médicas, use sempre: ![Descrição Médica](Link da Imagem do Wikimedia Commons ou Kenhub).
-- Nunca grude palavras. Use espaços duplos entre parágrafos.
+[COLE O RESTO DO SEU PROMPT OFICIAL AQUI]
 `;
 
 app.post('/chat', async (req, res) => {
     const { messages } = req.body;
-
     try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
@@ -46,17 +36,13 @@ app.post('/chat', async (req, res) => {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                "model": "anthropic/claude-3.5-sonnet", 
-                "messages": [
-                    { "role": "system", "content": AFYADOS_PROMPT },
-                    ...messages
-                ],
-                "temperature": 0.5, // Equilíbrio entre precisão e criatividade didática
+                "model": "google/gemini-flash-1.5", // Alta velocidade e baixo custo
+                "messages": [{ "role": "system", "content": AFYADOS_PROMPT }, ...messages],
+                "temperature": 0.6,
                 "stream": true
             })
         });
 
-        // Configuração de Streaming para o Frontend
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -64,29 +50,24 @@ app.post('/chat', async (req, res) => {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
             const chunk = decoder.decode(value);
             const lines = chunk.split("\n");
-
             for (const line of lines) {
                 if (line.startsWith("data: ")) {
                     const data = line.slice(6);
                     if (data.trim() === "[DONE]") break;
                     try {
                         const json = JSON.parse(data);
-                        const content = json.choices[0]?.delta?.content || "";
-                        res.write(content);
+                        res.write(json.choices[0]?.delta?.content || "");
                     } catch (e) {}
                 }
             }
         }
         res.end();
-
-    } catch (error) {
-        console.error("Erro no Servidor:", error);
-        res.status(500).send("Erro na conexão com o cérebro da IA.");
+    } catch (e) {
+        res.status(500).send("Erro no servidor médico.");
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Cérebro Afyados Operacional na porta ${PORT}`));
+app.listen(PORT, () => console.log(`Afyados operando na porta ${PORT}`));
