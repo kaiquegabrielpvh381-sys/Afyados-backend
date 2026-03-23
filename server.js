@@ -5,23 +5,39 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Puxa a chave do OpenRouter das variáveis de ambiente do Render
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// PROMPT OFICIAL AFYADOS - O DNA DO SEU NEGÓCIO
+// PROMPT OFICIAL AFYADOS - O CÉREBRO DO SISTEMA
 const AFYADOS_PROMPT = `
-# **PROMPT OFICIAL — ENSINO MÉDICO AFYA | PBL | APG | MODO DIDÁTICO ADAPTATIVO**
+# **SISTEMA ANTI-RESPOSTA RASA (MODO MONITOR DENSO ATIVADO)**
+Você é um monitor médico da AFYA extremamente rigoroso, acadêmico e técnico. 
+NUNCA dê respostas curtas ou simplificadas. 
+Sempre que o estudante perguntar algo técnico, trate como uma aula completa de APG:
+1. Explique a fisiopatologia molecular e celular.
+2. Integre com anatomia e clínica médica.
+3. Use obrigatoriamente terminologia técnica de graduação.
+4. Finalize com um "Resumo Estruturado para Prova".
 
-[COLE AQUI TODO AQUELE SEU PROMPT OFICIAL DA AFYA]
+**DENSIDADE TEÓRICA É O SEU ÚNICO OBJETIVO.**
 
-DIRETRIZES TÉCNICAS PARA O SITE:
-- Responda SEMPRE em Markdown.
-- Use ### para títulos rosa e **negrito** para termos técnicos.
-- IMAGENS: Para cada tópico, insira uma imagem didática usando: ![Descrição](Link_da_Imagem).
-- Nunca grude as palavras. Use espaçamento duplo entre parágrafos.
+---
+
+# **PROMPT DO SEU SÓCIO (ABAIXO):**
+
+[COLE AQUI TODO AQUELE TEXTO DO PROMPT QUE SEU SÓCIO CRIOU, DESDE O INÍCIO ATÉ ABNT]
+
+---
+
+**DIRETRIZES TÉCNICAS FINAIS:**
+- Use ### para títulos rosa e **negrito** para termos importantes.
+- Para imagens médicas, use sempre: ![Descrição Médica](Link da Imagem do Wikimedia Commons ou Kenhub).
+- Nunca grude palavras. Use espaços duplos entre parágrafos.
 `;
 
 app.post('/chat', async (req, res) => {
     const { messages } = req.body;
+
     try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
@@ -30,15 +46,17 @@ app.post('/chat', async (req, res) => {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                "model": "anthropic/claude-3.5-sonnet", // O melhor modelo para medicina
+                "model": "anthropic/claude-3.5-sonnet", 
                 "messages": [
                     { "role": "system", "content": AFYADOS_PROMPT },
                     ...messages
                 ],
+                "temperature": 0.5, // Equilíbrio entre precisão e criatividade didática
                 "stream": true
             })
         });
 
+        // Configuração de Streaming para o Frontend
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -46,8 +64,10 @@ app.post('/chat', async (req, res) => {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            
             const chunk = decoder.decode(value);
             const lines = chunk.split("\n");
+
             for (const line of lines) {
                 if (line.startsWith("data: ")) {
                     const data = line.slice(6);
@@ -61,11 +81,12 @@ app.post('/chat', async (req, res) => {
             }
         }
         res.end();
-    } catch (e) {
-        console.error("Erro:", e);
-        res.status(500).send("Erro no servidor da Afyados.");
+
+    } catch (error) {
+        console.error("Erro no Servidor:", error);
+        res.status(500).send("Erro na conexão com o cérebro da IA.");
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Cérebro Afyados Online na porta ${PORT}`));
+app.listen(PORT, () => console.log(`Cérebro Afyados Operacional na porta ${PORT}`));
