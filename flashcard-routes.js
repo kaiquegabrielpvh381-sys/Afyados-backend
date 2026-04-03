@@ -236,6 +236,112 @@ function registerFlashcardRoutes(app) {
     }
   });
 
+  // ─────────────────────────────────────────────
+  // POST /api/webhook/kiwify
+  // Webhook da Kiwify — recebe notificação de compra
+  // Configura na Kiwify: URL = https://afyados-backend.onrender.com/api/webhook/kiwify
+  // ─────────────────────────────────────────────
+  app.post("/api/webhook/kiwify", async (req, res) => {
+    try {
+      var body = req.body;
+
+      // Kiwify envia diferentes eventos
+      var orderStatus = body.order_status;
+
+      // Só processar compras aprovadas
+      if (orderStatus !== "paid" && orderStatus !== "completed") {
+        return res.json({ ok: true, skipped: true });
+      }
+
+      var email = (body.Customer && body.Customer.email) ? body.Customer.email.toLowerCase().trim() : null;
+      var name = (body.Customer && body.Customer.full_name) ? body.Customer.full_name : null;
+      var productName = (body.Product && body.Product.product_name) ? body.Product.product_name : "";
+      var orderId = body.order_id || "";
+
+      if (!email) {
+        console.error("Webhook Kiwify: email não encontrado", JSON.stringify(body).substring(0, 200));
+        return res.status(400).json({ error: "Email não encontrado" });
+      }
+
+      console.log("Webhook Kiwify: compra aprovada | email=" + email + " | produto=" + productName);
+
+      // 1. Criar usuário no Supabase Auth se não existir
+      var { data: existingUsers } = await supabase.auth.admin.listUsers();
+      var existingUser = (existingUsers && existingUsers.users) ?
+        existingUsers.users.find(function(u) { return u.email === email; }) : null;
+
+      var userId;
+      if (existingUser) {
+        userId = existingUser.id;
+      } else {
+        // Criar usuário com senha temporária (aluno troca depois)
+        var tempPassword = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
+        var { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+          email: email,
+          password: tempPassword,
+          email_confirm: true,
+          user_metadata: { full_name: name || email.split("@")[0] }
+        });
+        if (createErr) {
+          console.error("Webhook: erro ao criar usuário:", createErr.message);
+          return res.status(500).json({ error: "Erro ao criar usuário" });
+        }
+        userId = newUser.user.id;
+        console.log("Webhook: novo usuário criado | id=" + userId);
+      }
+
+      // 2. Salvar/atualizar na tabela subscriptions
+      var { error: subErr } = await supabase
+        .from("subscriptions")
+        .upsert({
+          user_id: userId,
+          email: email,
+          product: "clube",
+          product_name: productName,
+          status: "active",
+          kiwify_order_id: orderId,
+          purchased_at: new Date().toISOString()
+        }, { onConflict: "user_id,product" });
+
+      if (subErr) {
+        console.error("Webhook: erro ao salvar subscription:", subErr.message);
+        return res.status(500).json({ error: "Erro ao salvar" });
+      }
+
+      console.log("Webhook: subscription salva | user=" + userId + " | product=clube");
+      res.json({ ok: true, user_id: userId });
+
+    } catch (err) {
+      console.error("Webhook Kiwify error:", err.message);
+      res.status(500).json({ error: "Erro no webhook" });
+    }
+  });
+
+  // ─────────────────────────────────────────────
+  // GET /api/access/check
+  // Verifica se o usuário logado tem acesso aos flashcards
+  // ─────────────────────────────────────────────
+  app.get("/api/access/check", requireAuth, async (req, res) => {
+    try {
+      var { data: subs } = await supabase
+        .from("subscriptions")
+        .select("product, status, product_name")
+        .eq("user_id", req.user.id)
+        .eq("status", "active");
+
+      var hasAccess = subs && subs.length > 0;
+
+      res.json({
+        has_access: hasAccess,
+        email: req.user.email,
+        subscriptions: subs || []
+      });
+    } catch (err) {
+      console.error("GET /api/access/check:", err.message);
+      res.status(500).json({ error: "Erro ao verificar acesso" });
+    }
+  });
+
   console.log("✅ Rotas de Flashcards registradas");
 }
 
