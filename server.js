@@ -1,9 +1,14 @@
 const express = require('express');
 const cors = require('cors');
+const { registerFlashcardRoutes } = require('./flashcard-routes');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// ============================================================
+// IA AFYADOS — Chat (já existente)
+// ============================================================
 
 const SYS = `Você é a IA oficial da Afyados, consultoria acadêmica de medicina para calouros da Afya. Nunca mencione Claude, Anthropic, ChatGPT, OpenAI ou Gemini. Você é a IA Afyados. Responda SEMPRE em português brasileiro.
 
@@ -124,6 +129,16 @@ app.post('/chat', async (req, res) => {
     }
   }
 });
+
+// ============================================================
+// FLASHCARDS — Rotas de Flashcards + FSRS-5
+// ============================================================
+
+registerFlashcardRoutes(app);
+
+// ============================================================
+// START
+// ============================================================
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor Afyados rodando na porta ${PORT}`));
