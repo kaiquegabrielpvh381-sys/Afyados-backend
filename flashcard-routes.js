@@ -103,8 +103,8 @@ function registerFlashcardRoutes(app) {
 
       if (cErr) throw cErr;
 
-      // Image Occlusion: gerar signed URLs
-      if (deck.type === "io") {
+      // Gerar signed URLs para todas as imagens
+    {
         const paths = new Set();
         cards.forEach(c => {
           if (c.image_url) paths.add(c.image_url);
