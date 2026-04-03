@@ -103,30 +103,7 @@ function registerFlashcardRoutes(app) {
 
       if (cErr) throw cErr;
 
-      // Gerar signed URLs para todas as imagens
-    {
-        const paths = new Set();
-        cards.forEach(c => {
-          if (c.image_url) paths.add(c.image_url);
-          if (c.qmask_url) paths.add(c.qmask_url);
-          if (c.amask_url) paths.add(c.amask_url);
-        });
-
-        if (paths.size > 0) {
-          const { data: signed } = await supabase.storage
-            .from("flashcard-media")
-            .createSignedUrls([...paths], 3600);
-
-          const urlMap = {};
-          (signed || []).forEach(s => { if (s.signedUrl) urlMap[s.path] = s.signedUrl; });
-
-          cards.forEach(c => {
-            if (c.image_url) c.image_url = urlMap[c.image_url] || c.image_url;
-            if (c.qmask_url) c.qmask_url = urlMap[c.qmask_url] || c.qmask_url;
-            if (c.amask_url) c.amask_url = urlMap[c.amask_url] || c.amask_url;
-          });
-        }
-      }
+      // Bucket é público — URLs montadas no frontend com STORAGE_URL + path
 
       res.json({ deck, cards });
     } catch (err) {
