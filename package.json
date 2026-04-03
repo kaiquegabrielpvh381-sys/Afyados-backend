@@ -1,15 +1,13 @@
 {
-  "name": "afyados-backend",
+  "name": "afyados-apkg-parser",
   "version": "1.0.0",
-  "description": "Backend para a IA Afyados",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "description": "Parser de .apkg para Supabase",
+  "main": "parse-deck.js",
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "openai": "^4.28.0",
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "better-sqlite3": "^11.3.0",
+    "adm-zip": "^0.5.16",
+    "fzstd": "^0.1.1",
+    "dotenv": "^16.4.5"
   }
 }
