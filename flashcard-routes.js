@@ -345,7 +345,7 @@ function registerFlashcardRoutes(app) {
   // ─────────────────────────────────────────────
   // ADMIN ROUTES
   // ─────────────────────────────────────────────
-  var ADMINS = ["kaiquegabrielpvh381@gmail.com", "afyados18@gmail.com", "analuiza28464@gmail.com"];
+  var ADMINS = ["kaiquegabrielpvh381@gmail.com", "dcalddeira@gmail.com", "albertoiriarte07@gmail.com", "analuiza28464@gmail.com", "ludalmeiida@gmail.com"];
 
   function requireAdmin(req, res, next) {
     if (!req.user || ADMINS.indexOf(req.user.email) === -1) {
