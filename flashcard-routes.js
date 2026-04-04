@@ -342,6 +342,82 @@ function registerFlashcardRoutes(app) {
     }
   });
 
+  // ─────────────────────────────────────────────
+  // ADMIN ROUTES
+  // ─────────────────────────────────────────────
+  var ADMINS = ["kaiquegabrielpvh381@gmail.com", "afyados18@gmail.com", "analuiza28464@gmail.com"];
+
+  function requireAdmin(req, res, next) {
+    if (!req.user || ADMINS.indexOf(req.user.email) === -1) {
+      return res.status(403).json({ error: "Acesso negado" });
+    }
+    next();
+  }
+
+  // POST /api/admin/grant-access
+  app.post("/api/admin/grant-access", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      var email = (req.body.email || "").toLowerCase().trim();
+      if (!email) return res.status(400).json({ error: "Email obrigatório" });
+
+      // Buscar usuário
+      var { data: users } = await supabase.auth.admin.listUsers();
+      var user = (users && users.users) ? users.users.find(function(u) { return u.email === email; }) : null;
+
+      if (!user) {
+        // Criar usuário
+        var tempPass = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
+        var { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+          email: email,
+          password: tempPass,
+          email_confirm: true,
+          user_metadata: { full_name: email.split("@")[0] }
+        });
+        if (createErr) return res.status(500).json({ error: "Erro ao criar usuário: " + createErr.message });
+        user = newUser.user;
+      }
+
+      // Upsert subscription
+      var { error: subErr } = await supabase.from("subscriptions").upsert({
+        user_id: user.id,
+        email: email,
+        product: "clube",
+        status: "active",
+        product_name: "PRIMEIRO PERÍODO - AFYADOS",
+        purchased_at: new Date().toISOString()
+      }, { onConflict: "user_id,product" });
+
+      if (subErr) return res.status(500).json({ error: "Erro ao salvar: " + subErr.message });
+
+      res.json({ ok: true, email: email, user_id: user.id });
+    } catch (err) {
+      console.error("POST /api/admin/grant-access:", err.message);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // POST /api/admin/revoke-access
+  app.post("/api/admin/revoke-access", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      var email = (req.body.email || "").toLowerCase().trim();
+      var { error } = await supabase.from("subscriptions").delete().eq("email", email);
+      if (error) return res.status(500).json({ error: error.message });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // GET /api/admin/subscriptions
+  app.get("/api/admin/subscriptions", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      var { data: subs } = await supabase.from("subscriptions").select("email, status, product_name, purchased_at").order("purchased_at", { ascending: false });
+      res.json({ subscriptions: subs || [] });
+    } catch (err) {
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
   console.log("✅ Rotas de Flashcards registradas");
 }
 
