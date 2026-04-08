@@ -11,6 +11,51 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ── Helper: encontrar usuário por email (paginação completa) ──
+// listUsers() padrão retorna só 50 — precisamos paginar pra achar
+// emails que entraram depois da página 1.
+async function findUserByEmail(email) {
+  const target = email.toLowerCase().trim();
+  const perPage = 1000;
+  let page = 1;
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const users = (data && data.users) || [];
+    const found = users.find(function (u) {
+      return (u.email || "").toLowerCase() === target;
+    });
+    if (found) return found;
+    if (users.length < perPage) return null; // última página
+    page += 1;
+    if (page > 50) return null; // safety stop (50k usuários)
+  }
+}
+
+// ── Helper: garantir que o usuário existe (idempotente) ──
+async function ensureUser(email, fullName) {
+  const existing = await findUserByEmail(email);
+  if (existing) return existing;
+
+  const tempPassword = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
+  const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+    email: email,
+    password: tempPassword,
+    email_confirm: true,
+    user_metadata: { full_name: fullName || email.split("@")[0] }
+  });
+
+  if (createErr) {
+    // Race condition: outro request criou no meio. Re-busca.
+    if ((createErr.message || "").toLowerCase().includes("already")) {
+      const retry = await findUserByEmail(email);
+      if (retry) return retry;
+    }
+    throw createErr;
+  }
+  return newUser.user;
+}
+
 // ── Middleware: validar token JWT do Supabase Auth ──
 async function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
@@ -265,30 +310,17 @@ function registerFlashcardRoutes(app) {
 
       console.log("Webhook Kiwify: compra aprovada | email=" + email + " | produto=" + productName);
 
-      // 1. Criar usuário no Supabase Auth se não existir
-      var { data: existingUsers } = await supabase.auth.admin.listUsers();
-      var existingUser = (existingUsers && existingUsers.users) ?
-        existingUsers.users.find(function(u) { return u.email === email; }) : null;
-
-      var userId;
-      if (existingUser) {
-        userId = existingUser.id;
-      } else {
-        // Criar usuário com senha temporária (aluno troca depois)
-        var tempPassword = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
-        var { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
-          email: email,
-          password: tempPassword,
-          email_confirm: true,
-          user_metadata: { full_name: name || email.split("@")[0] }
-        });
-        if (createErr) {
-          console.error("Webhook: erro ao criar usuário:", createErr.message);
-          return res.status(500).json({ error: "Erro ao criar usuário" });
-        }
-        userId = newUser.user.id;
-        console.log("Webhook: novo usuário criado | id=" + userId);
+      // 1. Garantir que o usuário existe (paginação completa via helper)
+      let user;
+      try {
+        user = await ensureUser(email, name);
+      } catch (e) {
+        console.error("Webhook: erro ao garantir usuário:", e.message);
+        // IMPORTANTE: devolvemos 200 mesmo em erro pra Kiwify NÃO reenfileirar.
+        // O erro fica logado pra reprocessamento manual.
+        return res.json({ ok: true, error: "user_lookup_failed", message: e.message });
       }
+      const userId = user.id;
 
       // 2. Salvar/atualizar na tabela subscriptions
       var { error: subErr } = await supabase
@@ -305,7 +337,8 @@ function registerFlashcardRoutes(app) {
 
       if (subErr) {
         console.error("Webhook: erro ao salvar subscription:", subErr.message);
-        return res.status(500).json({ error: "Erro ao salvar" });
+        // Mesmo motivo: 200 pra não loopar.
+        return res.json({ ok: true, error: "subscription_save_failed", message: subErr.message });
       }
 
       console.log("Webhook: subscription salva | user=" + userId + " | product=clube");
@@ -313,7 +346,8 @@ function registerFlashcardRoutes(app) {
 
     } catch (err) {
       console.error("Webhook Kiwify error:", err.message);
-      res.status(500).json({ error: "Erro no webhook" });
+      // 200 sempre — evita loop infinito da Kiwify.
+      res.json({ ok: true, error: "internal", message: err.message });
     }
   });
 
@@ -360,21 +394,13 @@ function registerFlashcardRoutes(app) {
       var email = (req.body.email || "").toLowerCase().trim();
       if (!email) return res.status(400).json({ error: "Email obrigatório" });
 
-      // Buscar usuário
-      var { data: users } = await supabase.auth.admin.listUsers();
-      var user = (users && users.users) ? users.users.find(function(u) { return u.email === email; }) : null;
-
-      if (!user) {
-        // Criar usuário
-        var tempPass = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
-        var { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
-          email: email,
-          password: tempPass,
-          email_confirm: true,
-          user_metadata: { full_name: email.split("@")[0] }
-        });
-        if (createErr) return res.status(500).json({ error: "Erro ao criar usuário: " + createErr.message });
-        user = newUser.user;
+      // Garantir usuário (paginação completa via helper)
+      let user;
+      try {
+        user = await ensureUser(email, null);
+      } catch (e) {
+        console.error("grant-access: erro ao garantir usuário:", e.message);
+        return res.status(500).json({ error: "Erro ao garantir usuário: " + e.message });
       }
 
       // Upsert subscription
@@ -392,7 +418,7 @@ function registerFlashcardRoutes(app) {
       res.json({ ok: true, email: email, user_id: user.id });
     } catch (err) {
       console.error("POST /api/admin/grant-access:", err.message);
-      res.status(500).json({ error: "Erro interno" });
+      res.status(500).json({ error: "Erro interno: " + err.message });
     }
   });
 
