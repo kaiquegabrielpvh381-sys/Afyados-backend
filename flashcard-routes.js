@@ -35,7 +35,7 @@ async function findUserByEmail(email) {
 // ── Helper: garantir que o usuário existe (idempotente) ──
 async function ensureUser(email, fullName) {
   const existing = await findUserByEmail(email);
-  if (existing) return existing;
+  if (existing) return { user: existing, created: false };
 
   const tempPassword = "Afyados2026!" + Math.random().toString(36).substring(2, 8);
   const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
@@ -49,11 +49,27 @@ async function ensureUser(email, fullName) {
     // Race condition: outro request criou no meio. Re-busca.
     if ((createErr.message || "").toLowerCase().includes("already")) {
       const retry = await findUserByEmail(email);
-      if (retry) return retry;
+      if (retry) return { user: retry, created: false };
     }
     throw createErr;
   }
-  return newUser.user;
+  return { user: newUser.user, created: true };
+}
+
+// ── Helper: disparar email de "defina sua senha" via Supabase Auth ──
+// Usa resetPasswordForEmail porque dispara o template "Reset Password"
+// configurado no Supabase (que vamos customizar pra ficar em português).
+// O Supabase Auth mandará via SMTP custom (Resend) configurado no painel.
+async function sendPasswordRecovery(email, redirectPath) {
+  const site = process.env.SITE_URL || "https://afyadoss.com.br";
+  const path = redirectPath || "/reset-password.html";
+  const redirectTo = site + path;
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: redirectTo
+  });
+  if (error) throw error;
+  return true;
 }
 
 // ── Middleware: validar token JWT do Supabase Auth ──
@@ -311,9 +327,11 @@ function registerFlashcardRoutes(app) {
       console.log("Webhook Kiwify: compra aprovada | email=" + email + " | produto=" + productName);
 
       // 1. Garantir que o usuário existe (paginação completa via helper)
-      let user;
+      let user, created;
       try {
-        user = await ensureUser(email, name);
+        const r = await ensureUser(email, name);
+        user = r.user;
+        created = r.created;
       } catch (e) {
         console.error("Webhook: erro ao garantir usuário:", e.message);
         // IMPORTANTE: devolvemos 200 mesmo em erro pra Kiwify NÃO reenfileirar.
@@ -321,6 +339,7 @@ function registerFlashcardRoutes(app) {
         return res.json({ ok: true, error: "user_lookup_failed", message: e.message });
       }
       const userId = user.id;
+      if (created) console.log("Webhook: novo usuário criado | id=" + userId);
 
       // 2. Salvar/atualizar na tabela subscriptions
       var { error: subErr } = await supabase
@@ -342,7 +361,20 @@ function registerFlashcardRoutes(app) {
       }
 
       console.log("Webhook: subscription salva | user=" + userId + " | product=clube");
-      res.json({ ok: true, user_id: userId });
+
+      // 3. Se é usuário novo, dispara email de "defina sua senha" automaticamente.
+      // Pra compras repetidas (renovação, upgrade) não manda, pra não encher o email dela.
+      if (created) {
+        try {
+          await sendPasswordRecovery(email, "/reset-password.html");
+          console.log("Webhook: email de boas-vindas enviado | email=" + email);
+        } catch (e) {
+          // Não falha o webhook — a aluna pode pedir reset manualmente depois.
+          console.error("Webhook: erro ao enviar recovery:", e.message);
+        }
+      }
+
+      res.json({ ok: true, user_id: userId, created: created });
 
     } catch (err) {
       console.error("Webhook Kiwify error:", err.message);
@@ -395,9 +427,11 @@ function registerFlashcardRoutes(app) {
       if (!email) return res.status(400).json({ error: "Email obrigatório" });
 
       // Garantir usuário (paginação completa via helper)
-      let user;
+      let user, created;
       try {
-        user = await ensureUser(email, null);
+        const r = await ensureUser(email, null);
+        user = r.user;
+        created = r.created;
       } catch (e) {
         console.error("grant-access: erro ao garantir usuário:", e.message);
         return res.status(500).json({ error: "Erro ao garantir usuário: " + e.message });
@@ -415,9 +449,83 @@ function registerFlashcardRoutes(app) {
 
       if (subErr) return res.status(500).json({ error: "Erro ao salvar: " + subErr.message });
 
-      res.json({ ok: true, email: email, user_id: user.id });
+      // Se é usuário novo, dispara email de "defina sua senha" automaticamente.
+      let recoverySent = false;
+      if (created) {
+        try {
+          await sendPasswordRecovery(email, "/reset-password.html");
+          recoverySent = true;
+        } catch (e) {
+          console.error("grant-access: erro ao enviar recovery:", e.message);
+        }
+      }
+
+      res.json({ ok: true, email: email, user_id: user.id, created: created, recovery_sent: recoverySent });
     } catch (err) {
       console.error("POST /api/admin/grant-access:", err.message);
+      res.status(500).json({ error: "Erro interno: " + err.message });
+    }
+  });
+
+  // POST /api/admin/send-reset
+  // Dispara email de "defina sua senha" pra UM email específico.
+  // Usado pra desbloquear alunas travadas que já tem subscription ativa
+  // mas nunca conseguiram definir a senha.
+  app.post("/api/admin/send-reset", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      var email = (req.body.email || "").toLowerCase().trim();
+      if (!email) return res.status(400).json({ error: "Email obrigatório" });
+
+      try {
+        await sendPasswordRecovery(email, "/reset-password.html");
+      } catch (e) {
+        console.error("send-reset: erro:", e.message);
+        return res.status(500).json({ error: "Erro ao enviar: " + e.message });
+      }
+
+      res.json({ ok: true, email: email });
+    } catch (err) {
+      console.error("POST /api/admin/send-reset:", err.message);
+      res.status(500).json({ error: "Erro interno: " + err.message });
+    }
+  });
+
+  // POST /api/admin/send-reset-bulk
+  // Dispara email de "defina sua senha" pra TODAS as assinantes ativas.
+  // Usado pra resolver o backlog de uma vez.
+  // Respeita rate limit do Resend (10 por segundo) com delay entre envios.
+  app.post("/api/admin/send-reset-bulk", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { data: subs, error } = await supabase
+        .from("subscriptions")
+        .select("email")
+        .eq("status", "active");
+
+      if (error) return res.status(500).json({ error: "Erro ao listar assinantes: " + error.message });
+      if (!subs || subs.length === 0) return res.json({ ok: true, sent: 0, total: 0, errors: [] });
+
+      // Dedupe (caso o mesmo email apareça em múltiplos produtos)
+      const emails = Array.from(new Set(subs.map(s => (s.email || "").toLowerCase().trim()).filter(Boolean)));
+
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      let sent = 0;
+      const errors = [];
+
+      for (const email of emails) {
+        try {
+          await sendPasswordRecovery(email, "/reset-password.html");
+          sent += 1;
+        } catch (e) {
+          errors.push({ email: email, error: e.message });
+          console.error("send-reset-bulk: falha pra " + email + ": " + e.message);
+        }
+        // Delay de 200ms entre envios = ~5/s, bem abaixo do limite do Resend (10/s).
+        await sleep(200);
+      }
+
+      res.json({ ok: true, sent: sent, total: emails.length, errors: errors });
+    } catch (err) {
+      console.error("POST /api/admin/send-reset-bulk:", err.message);
       res.status(500).json({ error: "Erro interno: " + err.message });
     }
   });
