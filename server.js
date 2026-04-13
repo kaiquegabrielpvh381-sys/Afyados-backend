@@ -1,13 +1,18 @@
 const express = require('express');
 const cors = require('cors');
+const Anthropic = require('@anthropic-ai/sdk');
 const { registerFlashcardRoutes } = require('./flashcard-routes');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
 // ============================================================
-// IA AFYADOS — Chat (já existente)
+// IA AFYADOS — Chat com API da Anthropic (Claude) + Streaming
 // ============================================================
 
 const SYS = `Você é a IA oficial da Afyados, consultoria acadêmica de medicina para calouros da Afya. Nunca mencione Claude, Anthropic, ChatGPT, OpenAI ou Gemini. Você é a IA Afyados. Responda SEMPRE em português brasileiro.
@@ -52,10 +57,14 @@ Use **negrito** para termos técnicos. Respostas completas e detalhadas.`;
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'IA Afyados online ✅', model: 'claude-3-5-sonnet' });
+  res.json({
+    status: 'IA Afyados online ✅',
+    model: 'claude-sonnet-4-5',
+    hasKey: !!process.env.ANTHROPIC_API_KEY,
+  });
 });
 
-// Chat endpoint with STREAMING via OpenRouter
+// Chat endpoint com STREAMING via API nativa da Anthropic
 app.post('/chat', async (req, res) => {
   const { messages } = req.body;
 
@@ -63,69 +72,49 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Mensagens inválidas' });
   }
 
+  // Normaliza: a Anthropic aceita apenas role "user" e "assistant"
+  const cleanMessages = messages
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content || '') }))
+    .filter((m) => m.content.trim().length > 0);
+
+  if (cleanMessages.length === 0) {
+    return res.status(400).json({ error: 'Nenhuma mensagem válida' });
+  }
+
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://afyadoss.com.br',
-        'X-Title': 'IA Afyados'
-      },
-      body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4-5',
-        max_tokens: 4000,
-        stream: true,
-        messages: [
-          { role: 'user', content: SYS + '\n\nConfirme que entendeu suas instruções respondendo: "Entendido. Sou a IA Afyados."' },
-          { role: 'assistant', content: 'Entendido. Sou a IA Afyados.' },
-          ...messages
-        ]
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(500).json({ error: err.error?.message || `Erro ${response.status}` });
-    }
-
-    // Streaming headers
-    res.setHeader('Content-Type', 'text/event-stream');
+    // Headers de streaming de TEXTO PURO (compatível com o ia.html atual,
+    // que faz reply += chunk direto sem parsear SSE)
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
+    const stream = await anthropic.messages.stream({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      system: SYS,
+      messages: cleanMessages,
+    });
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n').filter(l => l.startsWith('data: '));
-
-      for (const line of lines) {
-        const data = line.replace('data: ', '').trim();
-        if (data === '[DONE]') {
-          res.write('data: [DONE]\n\n');
-          continue;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
-          }
-        } catch (e) {}
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta &&
+        event.delta.type === 'text_delta'
+      ) {
+        res.write(event.delta.text);
       }
     }
 
     res.end();
-
   } catch (err) {
+    console.error('Erro /chat:', err);
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message || 'Erro interno' });
+    } else {
+      res.end();
     }
   }
 });
