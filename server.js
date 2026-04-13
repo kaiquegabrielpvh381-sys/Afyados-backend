@@ -1,18 +1,18 @@
 const express = require('express');
 const cors = require('cors');
-const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 const { registerFlashcardRoutes } = require('./flashcard-routes');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // ============================================================
-// IA AFYADOS — Chat com API da Anthropic (Claude) + Streaming
+// IA AFYADOS — Chat com API da OpenAI (ChatGPT) + Streaming
 // ============================================================
 
 const SYS = `Você é a IA oficial da Afyados, consultoria acadêmica de medicina para calouros da Afya. Nunca mencione Claude, Anthropic, ChatGPT, OpenAI ou Gemini. Você é a IA Afyados. Responda SEMPRE em português brasileiro.
@@ -59,12 +59,12 @@ Use **negrito** para termos técnicos. Respostas completas e detalhadas.`;
 app.get('/', (req, res) => {
   res.json({
     status: 'IA Afyados online ✅',
-    model: 'claude-sonnet-4-5',
-    hasKey: !!process.env.ANTHROPIC_API_KEY,
+    model: 'gpt-4o-mini',
+    hasKey: !!process.env.OPENAI_API_KEY,
   });
 });
 
-// Chat endpoint com STREAMING via API nativa da Anthropic
+// Chat endpoint com STREAMING via API nativa da OpenAI
 app.post('/chat', async (req, res) => {
   const { messages } = req.body;
 
@@ -72,7 +72,6 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Mensagens inválidas' });
   }
 
-  // Normaliza: a Anthropic aceita apenas role "user" e "assistant"
   const cleanMessages = messages
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
     .map((m) => ({ role: m.role, content: String(m.content || '') }))
@@ -83,28 +82,26 @@ app.post('/chat', async (req, res) => {
   }
 
   try {
-    // Headers de streaming de TEXTO PURO (compatível com o ia.html atual,
-    // que faz reply += chunk direto sem parsear SSE)
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    const stream = await anthropic.messages.stream({
-      model: 'claude-sonnet-4-5',
+    const stream = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 4000,
-      system: SYS,
-      messages: cleanMessages,
+      stream: true,
+      messages: [
+        { role: 'system', content: SYS },
+        ...cleanMessages,
+      ],
     });
 
-    for await (const event of stream) {
-      if (
-        event.type === 'content_block_delta' &&
-        event.delta &&
-        event.delta.type === 'text_delta'
-      ) {
-        res.write(event.delta.text);
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        res.write(delta);
       }
     }
 
