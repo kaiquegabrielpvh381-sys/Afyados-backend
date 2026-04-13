@@ -42,10 +42,7 @@ body{background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',sans
 .conv-del:hover{color:#FF5555;background:rgba(255,85,85,.1);}
 .no-hist{padding:20px 10px;text-align:center;font-size:12px;color:var(--muted);line-height:1.7;}
 .sb-bot{padding:12px 14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;}
-.api-btn{display:flex;align-items:center;gap:9px;background:none;border:1px solid var(--border);color:var(--muted);font-size:13px;font-weight:500;padding:9px 11px;border-radius:9px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .2s;width:100%;text-align:left;}
-.api-btn:hover{border-color:var(--borderpink);color:var(--pink-light);}
-.api-dot{width:7px;height:7px;border-radius:50%;background:#3A3050;flex-shrink:0;}
-.api-dot.ok{background:#22C55E;box-shadow:0 0 6px rgba(34,197,94,.4);}
+.api-btn{display:none;}
 .back-link{display:flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-size:13px;padding:8px 11px;border-radius:9px;transition:all .2s;}
 .back-link:hover{background:var(--card);color:var(--text);}
 
@@ -253,29 +250,10 @@ Regras importantes:
 - Se perguntarem qual IA você é, diga apenas que é a IA desenvolvida pela Afyados
 - Formate respostas longas com **negrito** para títulos e listas quando necessário
 - Responda sempre em português brasileiro`;
-const LABELS={claude:'Claude',gpt:'IA Afyados',gemini:'Gemini'};
-const LINKS={claude:'console.anthropic.com',gpt:'platform.openai.com',gemini:'aistudio.google.com'};
-const PLACEHOLDERS={claude:'sk-ant-...',gpt:'sk-...',gemini:'AIza...'};
-
-let model='gpt', keys={}, convs={}, curId=null, busy=false, modalModel='gpt';
+let convs={}, curId=null, busy=false;
 
 function load(){try{convs=JSON.parse(localStorage.getItem('afy_c')||'{}');}catch(e){convs={};}}
 function save(){try{localStorage.setItem('afy_c',JSON.stringify(convs));}catch(e){}}
-
-function updateDot_disabled(){
-  const dot=document.getElementById('apiDot');
-  const st=document.getElementById('apiStatus');
-  if(keys[model]){dot.classList.add('ok');st.textContent=LABELS[model]+' conectado';}
-  else{dot.classList.remove('ok');st.textContent='Configurar API Key';}
-}
-
-function pickModel(m,btn){
-  model=m;
-  document.querySelectorAll('.mtabs .mtab').forEach(b=>b.classList.remove('on'));
-  btn.classList.add('on');
-  document.getElementById('modelLbl').textContent=LABELS[m];
-  updateDot();
-}
 
 function renderHist(){
   const list=document.getElementById('histList');
@@ -370,7 +348,7 @@ async function send(){
   if(!curId){
     curId='c'+Date.now();
     const title=text.length>42?text.substring(0,42)+'…':text;
-    convs[curId]={title,messages:[],model};
+    convs[curId]={title,messages:[]};
     document.getElementById('topTitle').textContent=title;
   }
   inp.value=''; inp.style.height='auto';
@@ -430,33 +408,11 @@ function useSug(t){document.getElementById('inputBox').value=t;send();}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}
 function resize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,180)+'px';}
 
-// Modal
-function openModal_disabled(){
-  modalModel=model;
-  syncModalModel();
-  document.getElementById('overlay').classList.add('show');
-}
-function closeModal_disabled(){document.getElementById('overlay').classList.remove('show');}
-function syncModalModel(){
-  document.getElementById('modalInp').value=keys[modalModel]||'';
-  document.getElementById('modalInp').placeholder=PLACEHOLDERS[modalModel];
-  document.getElementById('modalLbl').textContent='API Key do '+LABELS[modalModel];
-  document.getElementById('modalHint').innerHTML='Obtenha gratuitamente em: <a href="https://'+LINKS[modalModel]+'" target="_blank">'+LINKS[modalModel]+'</a>';
-  document.querySelectorAll('.modal-mtab').forEach((b,i)=>b.classList.toggle('on',['claude','gpt','gemini'][i]===modalModel));
-}
-function pickModalModel(m,btn){modalModel=m;syncModalModel();}
-function saveKey_disabled(){
-  const v=document.getElementById('modalInp').value.trim(); if(!v) return;
-  keys[modalModel]=v; save(); updateDot(); closeModal();
-  if(modalModel===model&&document.getElementById('inputBox').value.trim()) send();
-}
-
 // Sidebar
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sbOverlay').classList.toggle('show');}
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sbOverlay').classList.remove('show');}
-document.getElementById('overlay').addEventListener('click',function(e){if(e.target===this)closeModal();});
 
-load(); updateDot(); renderHist();
+load(); renderHist();
 </script>
 </body>
 </html>
