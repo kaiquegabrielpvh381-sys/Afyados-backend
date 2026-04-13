@@ -82,7 +82,9 @@ app.post('/chat', async (req, res) => {
   }
 
   try {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    // Streaming SSE (formato "data: {...}\n\n") — compatível com o
+    // parser atual do ia.html em produção.
+    res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
@@ -101,10 +103,11 @@ app.post('/chat', async (req, res) => {
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta?.content;
       if (delta) {
-        res.write(delta);
+        res.write('data: ' + JSON.stringify({ text: delta }) + '\n\n');
       }
     }
 
+    res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
     console.error('Erro /chat:', err);
