@@ -11,40 +11,46 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Busca a URL da imagem principal de um artigo da Wikipedia (inglês)
-// pra um termo de busca. Retorna null se não encontrar.
+// Busca a URL da imagem principal de um artigo da Wikipedia pra um termo
+// de busca. Tenta primeiro em português e, se não achar, tenta em inglês.
+// Retorna null se nenhuma encontrar.
 async function fetchWikiImage(term) {
-  try {
-    const url =
-      'https://en.wikipedia.org/w/api.php?' +
-      new URLSearchParams({
-        action: 'query',
-        format: 'json',
-        prop: 'pageimages',
-        piprop: 'original',
-        pithumbsize: '500',
-        generator: 'search',
-        gsrsearch: term,
-        gsrlimit: '1',
-        origin: '*',
-      }).toString();
+  const tryLang = async (lang) => {
+    try {
+      const url =
+        `https://${lang}.wikipedia.org/w/api.php?` +
+        new URLSearchParams({
+          action: 'query',
+          format: 'json',
+          prop: 'pageimages',
+          piprop: 'original',
+          pithumbsize: '500',
+          generator: 'search',
+          gsrsearch: term,
+          gsrlimit: '1',
+          origin: '*',
+        }).toString();
 
-    const r = await fetch(url, {
-      headers: { 'User-Agent': 'AfyadosBot/1.0 (afyadoss.com.br)' },
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const pages = data?.query?.pages;
-    if (!pages) return null;
-    for (const k in pages) {
-      const p = pages[k];
-      const img = p.original?.source || p.thumbnail?.source;
-      if (img) return img;
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'AfyadosBot/1.0 (afyadoss.com.br)' },
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      const pages = data?.query?.pages;
+      if (!pages) return null;
+      for (const k in pages) {
+        const p = pages[k];
+        const img = p.original?.source || p.thumbnail?.source;
+        if (img) return img;
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
-    return null;
-  } catch (e) {
-    return null;
-  }
+  };
+
+  // 1º tenta em português, 2º em inglês como fallback
+  return (await tryLang('pt')) || (await tryLang('en'));
 }
 
 // ============================================================
@@ -55,14 +61,15 @@ const SYS = `Você é a IA oficial da Afyados, consultoria acadêmica de medicin
 
 REGRA DE IMAGENS — MUITO IMPORTANTE:
 Em respostas sobre anatomia, fisiologia, histologia, embriologia ou qualquer tema médico visual, insira de 2 a 4 marcadores de imagem NO FORMATO EXATO:
-[IMG: termo de busca em inglês]
+[IMG: termo de busca em português]
 
-O sistema buscará automaticamente imagens reais da Wikipedia com base nos termos. NUNCA gere URLs de imagem manualmente. NUNCA use a sintaxe markdown ![](). Use APENAS [IMG: ...] em inglês para ter mais chance de encontrar imagem.
+O sistema buscará automaticamente imagens reais da Wikipedia com base nos termos. NUNCA gere URLs de imagem manualmente. NUNCA use a sintaxe markdown ![](). Use APENAS [IMG: ...] com termos em português (prefira o nome técnico do conceito, como ele apareceria como título de artigo na Wikipédia).
 
 Exemplos corretos:
-[IMG: human heart anatomy]
-[IMG: neuron structure]
-[IMG: skeletal system]
+[IMG: coração humano]
+[IMG: neurônio]
+[IMG: sistema esquelético]
+[IMG: mitocôndria]
 
 Posicione os marcadores dentro do texto, perto de onde o conteúdo correspondente é explicado.
 
