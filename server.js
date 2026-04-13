@@ -59,7 +59,7 @@ Use **negrito** para termos técnicos. Respostas completas e detalhadas.`;
 app.get('/', (req, res) => {
   res.json({
     status: 'IA Afyados online ✅',
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     hasKey: !!process.env.OPENAI_API_KEY,
   });
 });
@@ -91,7 +91,7 @@ app.post('/chat', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     const stream = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       max_tokens: 4000,
       stream: true,
       messages: [
@@ -100,13 +100,30 @@ app.post('/chat', async (req, res) => {
       ],
     });
 
+    // Buffer para suavizar o streaming: acumula texto e envia
+    // a cada ~60ms, reduzindo re-renderizações do markdown no frontend
+    let buffer = '';
+    let lastFlush = Date.now();
+    const FLUSH_MS = 60;
+
+    const flush = () => {
+      if (buffer.length === 0) return;
+      res.write('data: ' + JSON.stringify({ text: buffer }) + '\n\n');
+      buffer = '';
+      lastFlush = Date.now();
+    };
+
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta?.content;
       if (delta) {
-        res.write('data: ' + JSON.stringify({ text: delta }) + '\n\n');
+        buffer += delta;
+        if (Date.now() - lastFlush >= FLUSH_MS) {
+          flush();
+        }
       }
     }
 
+    flush();
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
